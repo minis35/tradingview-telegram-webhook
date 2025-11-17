@@ -31,12 +31,23 @@ def home():
 def webhook():
     """TradingView'dan gelen webhook'u işle"""
     try:
-        # TradingView'dan gelen veriyi al
-        data = request.get_json()
+        # Her türlü content-type'ı kabul et
+        content_type = request.content_type
         
-        # Eğer metin formatında gelirse
+        # Önce JSON olarak dene
+        data = None
+        try:
+            data = request.get_json(force=True, silent=True)
+        except:
+            pass
+        
+        # JSON değilse text olarak al
         if not data:
-            data = request.data.decode('utf-8')
+            raw_data = request.data.decode('utf-8')
+            # Eğer boşsa
+            if not raw_data:
+                raw_data = request.form.to_dict()
+            data = raw_data
         
         # Mesajı formatla
         if isinstance(data, dict):
@@ -45,6 +56,10 @@ def webhook():
                 message += f"<b>{key}:</b> {value}\n"
         else:
             message = f"🔔 <b>TradingView Alarmı</b>\n\n{data}"
+        
+        # Eğer mesaj boşsa
+        if not message or message == "🔔 <b>TradingView Alarmı</b>\n\n":
+            message = "🔔 <b>TradingView Alarmı</b>\n\nAlarm tetiklendi!"
         
         # Telegram'a gönder
         result = send_telegram_message(message)
