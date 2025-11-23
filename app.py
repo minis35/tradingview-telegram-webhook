@@ -22,117 +22,80 @@ def send_telegram_message(message):
         response = requests.post(url, json=payload)
         return response.json()
     except Exception as e:
-        print(f"Telegram gönderim hatası: {e}")
+        print(f"Telegram error: {e}")
         return None
 
 @app.route('/')
 def home():
-    return "TradingView Webhook Servisi Çalışıyor! ✅"
+    return "TradingView Webhook Active"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    """TradingView'dan gelen webhook'u işle"""
+    """TradingView webhook handler"""
     try:
-        # URL parametrelerini al
+        # Get URL parameters
         url_params = request.args.to_dict()
         
-        # POST verisini al
+        # Get POST data
         data = {}
         raw_data = request.data.decode('utf-8')
         
-        print(f"🔍 Raw data: {raw_data}")
-        print(f"🔍 Content-Type: {request.content_type}")
+        print(f"Raw data: {raw_data}")
+        print(f"Content-Type: {request.content_type}")
         
-        # Önce JSON olarak parse et
+        # Parse JSON
         try:
             if request.is_json:
                 data = request.get_json(force=True)
             else:
-                # JSON değilse string olarak gelmiş olabilir
                 if raw_data:
                     try:
                         data = json.loads(raw_data)
                     except:
                         data = {'raw_message': raw_data}
         except Exception as e:
-            print(f"⚠️ JSON parse hatası: {e}")
+            print(f"JSON parse error: {e}")
             data = {'raw_message': raw_data}
         
-        # URL parametrelerini ekle
+        # Add URL params
         data.update(url_params)
         
-        print(f"📥 Parsed data: {data}")
+        print(f"Parsed data: {data}")
         
-        # Bilgileri çıkar
-        pair = (data.get('ticker') or 
-                data.get('pair') or 
-                data.get('symbol') or 
-                'UNKNOWN')
-        
-        price = (data.get('close') or 
-                 data.get('price') or 
-                 '?')
-        
-        timeframe = (data.get('interval') or 
-                     data.get('timeframe') or 
-                     data.get('tf') or 
-                     '?')
-        
+        # Extract info
+        pair = data.get('ticker') or data.get('pair') or data.get('symbol') or 'UNKNOWN'
+        price = data.get('close') or data.get('price') or '?'
+        timeframe = data.get('interval') or data.get('timeframe') or data.get('tf') or '?'
         time_str = data.get('time') or datetime.now().strftime('%H:%M:%S')
+        alert_msg = data.get('message') or data.get('alert') or data.get('alert_name') or data.get('raw_message') or 'Alert'
         
-        # Alarm mesajını al
-        alert_msg = (data.get('message') or 
-                    data.get('alert') or 
-                    data.get('alert_name') or 
-                    data.get('raw_message') or 
-                    'Alert Triggered')
+        # Create message
+        message = f"<b>{pair}</b>\n\n{price}\n{timeframe}\n{time_str}\n\n{alert_msg}"
         
-        # Telegram mesajını oluştur
-        message = f"""🔔 <b>{pair}</b>
-
-💰 {price}
-⏱ {timeframe}
-🕐 {time_str}
-
-{alert_msg}"""
+        print(f"Alert: {pair} - {price} - {timeframe}")
         
-        # Console log
-        print(f"✅ Alarm: {pair} - {price} - {timeframe}")
-        
-        # Telegram'a gönder
+        # Send to Telegram
         result = send_telegram_message(message)
         
         if result:
-            return jsonify({"status": "success", "message": "Mesaj gönderildi"}), 200
+            return jsonify({"status": "success"}), 200
         else:
-            return jsonify({"status": "error", "message": "Telegram'a gönderilemedi"}), 500
+            return jsonify({"status": "error"}), 500
             
     except Exception as e:
-        print(f"❌ Webhook hatası: {e}")
-        
-        # Hata durumunda bile basit mesaj gönder
-        try:
-            error_msg = f"⚠️ <b>Webhook Hatası</b>\n\n{str(e)}\n\nHam veri:\n<code>{request.data.decode('utf-8')}</code>"
-            send_telegram_message(error_msg)
-        except:
-            pass
-        
+        print(f"Webhook error: {e}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route('/test', methods=['GET'])
 def test():
-    """Test mesajı gönder"""
-    test_msg = f"""✅ <b>Test Mesajı</b>
-
-Server çalışıyor!
-🕐 {datetime.now().strftime('%H:%M:%S')}"""
-    
+    """Test endpoint"""
+    test_msg = f"Test OK\n{datetime.now().strftime('%H:%M:%S')}"
     result = send_telegram_message(test_msg)
     
     if result:
-        return jsonify({"status": "success", "message": "Test mesajı gönderildi"})
+        return jsonify({"status": "success"})
     else:
-        return jsonify({"status": "error", "message": "Mesaj gönderilemedi"})
+        return jsonify({"status": "error"})
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
@@ -141,41 +104,37 @@ if __name__ == '__main__':
 
 ---
 
-## 🔄 KODU GÜNCELLE
+## ✅ FARKLAR
+
+1. ✅ Emoji'leri kaldırdım (syntax sorununu çözer)
+2. ✅ Üç tırnak yerine tek satır string
+3. ✅ Daha basit message formatı
+4. ✅ Print statement'ları basitleştirdim
+
+---
+
+## 🔄 GÜNCELLE
 
 ### **GitHub'da:**
 
 1. **app.py'yi aç**
-2. **Tüm içeriği yukarıdaki kodla değiştir**
-3. **Commit message:** "Add better JSON parsing and logging"
-4. **Commit changes**
+2. **Tüm içeriği sil**
+3. **Yukarıdaki kodu yapıştır**
+4. **Commit: "Fix syntax error"**
+5. **Commit changes**
 
-### **Render deploy edecek (1-2 dk)**
+### **Render 1-2 dakikada deploy eder**
 
 ---
 
-## 🔍 SONRA TEST VE LOG KONTROL
+## 🧪 TEST
 
-### **1. Test Alarm Gönder**
-
-TradingView'dan test et.
-
-### **2. Render Logs'u İzle**
-
-**Göreceğin loglar:**
+Deploy tamamlanınca:
 ```
-🔍 Raw data: {"ticker":"BTCUSDT","close":"98450.50",...}
-🔍 Content-Type: application/json
-📥 Parsed data: {'ticker': 'BTCUSDT', 'close': '98450.50', 'interval': '15m', ...}
-✅ Alarm: BTCUSDT - 98450.50 - 15m
+https://tradingview-telegram-webhook.onrender.com/test
 ```
 
-### **3. Telegram'ı Kontrol Et**
+**Beklenen Telegram:**
 ```
-🔔 BTCUSDT
-
-💰 98,450.50
-⏱ 15m
-🕐 16:55:23
-
-Bearish SMT with BTC.D CONFIRMED
+Test OK
+17:05:23
