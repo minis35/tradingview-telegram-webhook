@@ -19,6 +19,12 @@ def send_telegram(text):
 def home():
     return "OK"
 
+@app.route('/test')
+def test():
+    time_now = datetime.now().strftime('%H:%M:%S')
+    send_telegram("Test OK\n" + time_now)
+    return "Test message sent to Telegram"
+
 @app.route('/webhook', methods=['POST'])
 def webhook():
     try:
@@ -44,12 +50,22 @@ def webhook():
         print("Error: " + str(e))
         return jsonify({'status': 'error'}), 500
 
-@app.route('/test')
-def test():
-    time_now = datetime.now().strftime('%H:%M:%S')
-    send_telegram("Test OK\n" + time_now)
-    return jsonify({'status': 'ok'})
-
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+```
+
+---
+
+## 🔄 DEPLOY
+
+1. **GitHub → app.py → Edit**
+2. **Yukarıdaki kodu yapıştır**
+3. **Commit: "Add test endpoint"**
+4. **1-2 dakika bekle**
+
+---
+
+## 🧪 SONRA TEST
+```
+https://tradingview-telegram-webhook.onrender.com/test
