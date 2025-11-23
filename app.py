@@ -1,11 +1,11 @@
 from flask import Flask, request, jsonify
 import requests
 import os
+import json
 from datetime import datetime
 
 app = Flask(__name__)
 
-# Telegram Bot bilgileri
 TELEGRAM_BOT_TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', 'BURAYA_BOT_TOKEN_YAZIN')
 TELEGRAM_CHAT_ID = os.environ.get('TELEGRAM_CHAT_ID', 'BURAYA_CHAT_ID_YAZIN')
 
@@ -38,25 +38,46 @@ def webhook():
         
         # POST verisini al
         data = {}
+        raw_data = request.data.decode('utf-8')
+        
+        print(f"🔍 Raw data: {raw_data}")
+        print(f"🔍 Content-Type: {request.content_type}")
+        
+        # Önce JSON olarak parse et
         try:
             if request.is_json:
-                data = request.get_json(force=True, silent=True) or {}
-        except:
-            pass
-        
-        # Eğer JSON değilse text olarak al
-        if not data:
-            raw_data = request.data.decode('utf-8')
-            if raw_data:
-                data = {'raw_message': raw_data}
+                data = request.get_json(force=True)
+            else:
+                # JSON değilse string olarak gelmiş olabilir
+                if raw_data:
+                    try:
+                        data = json.loads(raw_data)
+                    except:
+                        data = {'raw_message': raw_data}
+        except Exception as e:
+            print(f"⚠️ JSON parse hatası: {e}")
+            data = {'raw_message': raw_data}
         
         # URL parametrelerini ekle
         data.update(url_params)
         
+        print(f"📥 Parsed data: {data}")
+        
         # Bilgileri çıkar
-        pair = data.get('ticker') or data.get('pair') or data.get('symbol') or 'UNKNOWN'
-        price = data.get('close') or data.get('price') or '?'
-        timeframe = data.get('interval') or data.get('timeframe') or data.get('tf') or '?'
+        pair = (data.get('ticker') or 
+                data.get('pair') or 
+                data.get('symbol') or 
+                'UNKNOWN')
+        
+        price = (data.get('close') or 
+                 data.get('price') or 
+                 '?')
+        
+        timeframe = (data.get('interval') or 
+                     data.get('timeframe') or 
+                     data.get('tf') or 
+                     '?')
+        
         time_str = data.get('time') or datetime.now().strftime('%H:%M:%S')
         
         # Alarm mesajını al
@@ -75,9 +96,8 @@ def webhook():
 
 {alert_msg}"""
         
-        # Log
+        # Console log
         print(f"✅ Alarm: {pair} - {price} - {timeframe}")
-        print(f"📥 Gelen data: {data}")
         
         # Telegram'a gönder
         result = send_telegram_message(message)
@@ -92,7 +112,7 @@ def webhook():
         
         # Hata durumunda bile basit mesaj gönder
         try:
-            error_msg = f"⚠️ <b>Webhook Hatası</b>\n\n{str(e)}\n\nHam veri: {request.data.decode('utf-8')}"
+            error_msg = f"⚠️ <b>Webhook Hatası</b>\n\n{str(e)}\n\nHam veri:\n<code>{request.data.decode('utf-8')}</code>"
             send_telegram_message(error_msg)
         except:
             pass
@@ -117,3 +137,45 @@ Server çalışıyor!
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+```
+
+---
+
+## 🔄 KODU GÜNCELLE
+
+### **GitHub'da:**
+
+1. **app.py'yi aç**
+2. **Tüm içeriği yukarıdaki kodla değiştir**
+3. **Commit message:** "Add better JSON parsing and logging"
+4. **Commit changes**
+
+### **Render deploy edecek (1-2 dk)**
+
+---
+
+## 🔍 SONRA TEST VE LOG KONTROL
+
+### **1. Test Alarm Gönder**
+
+TradingView'dan test et.
+
+### **2. Render Logs'u İzle**
+
+**Göreceğin loglar:**
+```
+🔍 Raw data: {"ticker":"BTCUSDT","close":"98450.50",...}
+🔍 Content-Type: application/json
+📥 Parsed data: {'ticker': 'BTCUSDT', 'close': '98450.50', 'interval': '15m', ...}
+✅ Alarm: BTCUSDT - 98450.50 - 15m
+```
+
+### **3. Telegram'ı Kontrol Et**
+```
+🔔 BTCUSDT
+
+💰 98,450.50
+⏱ 15m
+🕐 16:55:23
+
+Bearish SMT with BTC.D CONFIRMED
