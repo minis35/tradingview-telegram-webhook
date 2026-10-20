@@ -38,6 +38,8 @@ endTime    = input.string("23:59", "EndTime", group = grpArr)
 
 grpBox = "FVG boxes"
 showBoxes = input.bool(true, "Show FVG boxes on chart", group = grpBox, tooltip = "Draws every detected FVG on the price chart and extends it until price fills the gap; filled boxes stop and fade. Only when TimeFrame is the chart timeframe.")
+hideFilled = input.bool(true, "Hide filled boxes", group = grpBox, tooltip = "Delete a box once price fills the gap, so only still-valid FVGs stay on the chart.")
+minBoxAtr  = input.float(0.0, "Min box size (× ATR)", minval = 0, step = 0.05, group = grpBox, tooltip = "Skip boxes for gaps smaller than this multiple of ATR (e.g. 0.2). 0 = draw all. Affects only the boxes, not the oscillator.")
 
 grpCol = "Colors"
 colorBuy  = input.color(#00ff7f, "ColorBUY", group = grpCol)    // SpringGreen
@@ -133,17 +135,22 @@ updateBoxes(array<box> boxes, bool isBull, color col) =>
             filled = isBull ? low <= b.get_bottom() : high >= b.get_top()
             b.set_right(bar_index)
             if filled
-                b.set_bgcolor(color.new(col, 93))
-                b.set_border_color(color.new(col, 75))
+                if hideFilled
+                    b.delete()
+                else
+                    b.set_bgcolor(color.new(col, 93))
+                    b.set_border_color(color.new(col, 75))
                 boxes.remove(i)
+
+minBox = minBoxAtr * ta.atr(atrLen)
 
 if showBoxes and tfInput == ""
     updateBoxes(openBull, true, colorBuy)
     updateBoxes(openBear, false, colorSell)
     if barstate.isconfirmed
-        if low > high[2]
+        if low > high[2] and low - high[2] >= minBox
             openBull.push(box.new(bar_index - 2, low, bar_index, high[2], border_color = color.new(colorBuy, 40), bgcolor = color.new(colorBuy, 80), force_overlay = true))
-        if high < low[2]
+        if high < low[2] and low[2] - high >= minBox
             openBear.push(box.new(bar_index - 2, low[2], bar_index, high, border_color = color.new(colorSell, 40), bgcolor = color.new(colorSell, 80), force_overlay = true))
         if openBull.size() > 150
             openBull.shift()
