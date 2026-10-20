@@ -21,7 +21,7 @@ fvgMode    = input.string("Linear weighted", "FvgMode", options = ["Simple", "Ex
 sigPeriod  = input.int(0, "SigPeriod", minval = 0, group = grpMain, tooltip = "0 = no signal line.")
 sigMode    = input.string("Linear weighted", "SigMode", options = ["Simple", "Exponential", "Smoothed", "Linear weighted"], group = grpMain)
 hotLevel   = input.float(50.0, "HotLevel", minval = 0, group = grpMain)
-units      = input.string("Points", "Units", options = ["Points", "Pips (10 points)", "Price"], group = grpMain, tooltip = "Unit of the accumulated gap size. Points = MT4 Point (syminfo.mintick).")
+units      = input.string("Points", "Units", options = ["Points", "Pips (10 points)", "Price"], group = grpMain, tooltip = "Unit of the accumulated gap size. Points = MT4 Point (0.00001 on FX, 0.001 on JPY pairs).")
 showIndex  = input.string("Standard Histogram", "ShowIndex", options = ["Standard Histogram", "Line"], group = grpMain)
 
 grpArr = "Arrows & alerts"
@@ -44,9 +44,11 @@ maOf(float src, int len, string mode) =>
         "Smoothed"    => ta.rma(src, len)
         => ta.wma(src, len)
 
+// MT4 Point on a 5-digit FX feed; TradingView feeds such as ICE quote only 4 digits.
+mt4Point = syminfo.type == "forex" ? (syminfo.currency == "JPY" ? 0.001 : 0.00001) : syminfo.mintick
 unitSize = switch units
-    "Points"           => syminfo.mintick
-    "Pips (10 points)" => syminfo.mintick * 10
+    "Points"           => mt4Point
+    "Pips (10 points)" => mt4Point * 10
     => 1.0
 
 fvgOsc() =>
