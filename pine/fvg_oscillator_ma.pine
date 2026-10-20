@@ -6,6 +6,7 @@
 //   * bullish FVG (low > high[2]): add the gap to Data if Data > 0, else restart at the gap;
 //   * bearish FVG (high < low[2]): add the (negative) gap if Data < 0, else restart at it;
 //   * no FVG: Data keeps its value (flat).
+// Optional (on by default, not in MT4): only the still-unfilled part of each gap counts.
 // The "MA" wrapper smooths Data with FvgPeriod/FvgMode. Its .ex4 is encrypted;
 // expressing Data in points is inferred from the MT4 screenshot (HotLevel 50).
 // Non-forex symbols (crypto, stocks) default to ATR units so values compare across assets.
@@ -25,7 +26,7 @@ hotLevel   = input.float(50.0, "HotLevel", minval = 0, group = grpMain)
 units      = input.string("Auto", "Units", options = ["Auto", "Points", "Pips (10 points)", "ATR", "% of price", "Price"], group = grpMain, tooltip = "Unit of the accumulated gap size. Auto = Points on forex, ATR elsewhere (crypto, stocks). Points = MT4 Point (0.00001 on FX, 0.001 on JPY pairs).")
 hotLevelN  = input.float(1.0, "HotLevel (ATR / %)", minval = 0, step = 0.1, group = grpMain, tooltip = "HotLevel used when the unit is ATR or % of price.")
 atrLen     = input.int(14, "ATR length", minval = 1, group = grpMain)
-resetFill  = input.bool(true, "Reset when FVG is filled", group = grpMain, tooltip = "Not in the MT4 original. Clears the accumulated value once price closes through the latest FVG, so a drop without a bearish FVG no longer leaves the oscillator bullish. Turn off to match MT4.")
+resetFill  = input.bool(true, "Count only unfilled FVG parts", group = grpMain, tooltip = "Not in the MT4 original. Closes back inside a gap shrink it and a gap closed through drops out, so the oscillator is the size of the still-unfilled gaps. Turn off to match MT4.")
 showIndex  = input.string("Standard Histogram", "ShowIndex", options = ["Standard Histogram", "Line"], group = grpMain)
 
 grpArr = "Arrows & alerts"
@@ -60,19 +61,38 @@ unit = units == "Auto" ? (syminfo.type == "forex" ? "Points" : "ATR") : units
 hot  = unit == "ATR" or unit == "% of price" ? hotLevelN : hotLevel
 
 fvgOsc() =>
-    var float data   = 0.0
-    var float bullLo = na                        // bottom of the latest bullish FVG
-    var float bearHi = na                        // top of the latest bearish FVG
+    // Unfilled gaps of the current run (all bullish or all bearish).
+    var int dir  = 0
+    var gapTop   = array.new<float>()
+    var gapBot   = array.new<float>()
     if low > high[2]                             // bullish FVG
-        gap = low - high[2]
-        data := data > 0 ? data + gap : gap
-        bullLo := high[2]
+        if dir != 1
+            dir := 1
+            gapTop.clear()
+            gapBot.clear()
+        gapTop.push(low)
+        gapBot.push(high[2])
     if high < low[2]                             // bearish FVG
-        gap = high - low[2]
-        data := data < 0 ? data + gap : gap
-        bearHi := low[2]
-    if resetFill and ((data > 0 and close < bullLo) or (data < 0 and close > bearHi))
-        data := 0.0
+        if dir != -1
+            dir := -1
+            gapTop.clear()
+            gapBot.clear()
+        gapTop.push(low[2])
+        gapBot.push(high)
+    // Mitigation: closes back inside a gap shrink it; a gap closed through is gone.
+    if resetFill and gapTop.size() > 0
+        for i = gapTop.size() - 1 to 0
+            if dir == 1
+                gapTop.set(i, math.min(gapTop.get(i), close))
+            else
+                gapBot.set(i, math.max(gapBot.get(i), close))
+            if gapTop.get(i) <= gapBot.get(i)
+                gapTop.remove(i)
+                gapBot.remove(i)
+    if gapTop.size() > 500
+        gapTop.shift()
+        gapBot.shift()
+    data = dir * (nz(gapTop.sum()) - nz(gapBot.sum()))
     atr = ta.atr(atrLen)
     unitSize = switch unit
         "Points"           => mt4Point
