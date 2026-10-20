@@ -94,17 +94,16 @@ plotshape(onInd and sell,   "SELL (ind)",   shape.triangledown, location.top,   
 plotshape(onChart and buy,  "BUY (chart)",  shape.triangleup,   location.belowbar, colorBuy,  size = size.small, force_overlay = true)
 plotshape(onChart and sell, "SELL (chart)", shape.triangledown, location.abovebar, colorSell, size = size.small, force_overlay = true)
 
-// ───────── Alerts → /webhook → Telegram ─────────
-// Static alerts for the alert dialog; messages are JSON for this repo's webhook.
-alertcondition(buy,  "FVGOSCMA BUY",  '{"sinyal":"FVG Osc MA AL","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
-alertcondition(sell, "FVGOSCMA SELL", '{"sinyal":"FVG Osc MA SAT","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
+// ───────── Alerts ─────────
+alertcondition(buy,  "FVGOSCMA BUY",  "FVG Osc MA AL ▲ {{ticker}} {{interval}} @ {{close}}")
+alertcondition(sell, "FVGOSCMA SELL", "FVG Osc MA SAT ▼ {{ticker}} {{interval}} @ {{close}}")
 
-jsonMsg(string signal) =>
-    '{"sinyal":"' + signal + '","sembol":"' + syminfo.ticker + '","periyot":"' + timeframe.period +
-     '","fiyat":"' + str.tostring(close, format.mintick) + '","osc":"' + str.tostring(osc, "#.##") + '"}'
+alertMsg(string signal) =>
+    signal + " " + syminfo.ticker + " " + timeframe.period + " @ " + str.tostring(close, format.mintick) +
+     " | osc " + str.tostring(osc, "#.##")
 
 // "Any alert() function call" alert; ALERTBAR = 1 fires only on closed bars.
 if buy and confirmed
-    alert(jsonMsg("FVG Osc MA AL"), alertBar == 1 ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
+    alert(alertMsg("FVG Osc MA AL ▲"), alertBar == 1 ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
 if sell and confirmed
-    alert(jsonMsg("FVG Osc MA SAT"), alertBar == 1 ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
+    alert(alertMsg("FVG Osc MA SAT ▼"), alertBar == 1 ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
