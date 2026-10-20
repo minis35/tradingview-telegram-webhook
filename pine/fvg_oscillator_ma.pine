@@ -37,8 +37,7 @@ startTime  = input.string("00:00", "StartTime", group = grpArr)
 endTime    = input.string("23:59", "EndTime", group = grpArr)
 
 grpBox = "FVG boxes"
-showBoxes = input.bool(true, "Show FVG boxes on chart", group = grpBox, tooltip = "Draws every detected FVG on the price chart. Only when TimeFrame is the chart timeframe.")
-boxBars   = input.int(10, "Box length (bars)", minval = 1, group = grpBox)
+showBoxes = input.bool(true, "Show FVG boxes on chart", group = grpBox, tooltip = "Draws every detected FVG on the price chart and extends it until price fills the gap; filled boxes stop and fade. Only when TimeFrame is the chart timeframe.")
 
 grpCol = "Colors"
 colorBuy  = input.color(#00ff7f, "ColorBUY", group = grpCol)    // SpringGreen
@@ -123,11 +122,33 @@ plotshape(onChart and buy,  "BUY (chart)",  shape.triangleup,   location.belowba
 plotshape(onChart and sell, "SELL (chart)", shape.triangledown, location.abovebar, colorSell, size = size.small, force_overlay = true)
 
 // ───────── FVG boxes (chart timeframe) ─────────
-if showBoxes and tfInput == "" and barstate.isconfirmed
-    if low > high[2]
-        box.new(bar_index - 2, low, bar_index + boxBars, high[2], border_color = color.new(colorBuy, 40), bgcolor = color.new(colorBuy, 85), force_overlay = true)
-    if high < low[2]
-        box.new(bar_index - 2, low[2], bar_index + boxBars, high, border_color = color.new(colorSell, 40), bgcolor = color.new(colorSell, 85), force_overlay = true)
+// Open boxes extend right until price trades through the far side of the gap.
+var array<box> openBull = array.new<box>()
+var array<box> openBear = array.new<box>()
+
+updateBoxes(array<box> boxes, bool isBull, color col) =>
+    if boxes.size() > 0
+        for i = boxes.size() - 1 to 0
+            b = boxes.get(i)
+            filled = isBull ? low <= b.get_bottom() : high >= b.get_top()
+            b.set_right(bar_index)
+            if filled
+                b.set_bgcolor(color.new(col, 93))
+                b.set_border_color(color.new(col, 75))
+                boxes.remove(i)
+
+if showBoxes and tfInput == ""
+    updateBoxes(openBull, true, colorBuy)
+    updateBoxes(openBear, false, colorSell)
+    if barstate.isconfirmed
+        if low > high[2]
+            openBull.push(box.new(bar_index - 2, low, bar_index, high[2], border_color = color.new(colorBuy, 40), bgcolor = color.new(colorBuy, 80), force_overlay = true))
+        if high < low[2]
+            openBear.push(box.new(bar_index - 2, low[2], bar_index, high, border_color = color.new(colorSell, 40), bgcolor = color.new(colorSell, 80), force_overlay = true))
+        if openBull.size() > 150
+            openBull.shift()
+        if openBear.size() > 150
+            openBear.shift()
 
 // ───────── Alerts ─────────
 alertcondition(buy,  "FVGOSCMA BUY",  "FVG Osc MA AL ▲ {{ticker}} {{interval}} @ {{close}}")
