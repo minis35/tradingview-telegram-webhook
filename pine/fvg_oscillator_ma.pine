@@ -1,93 +1,99 @@
 // This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
-// FVG Oscillator MA — Pine Script v6 reconstruction of the MT4 "FVG Oscillator MA"
-// (Gehtsoft / fxcodebase). The original .ex4 is compiled and encrypted, so this
-// follows the published behaviour instead of a line-by-line port:
-//   * a bullish FVG pushes the oscillator up, a bearish FVG pushes it down,
-//     and with no FVG the line stays flat;
-//   * a wider gap moves the oscillator further;
-//   * above zero = bullish FVGs dominated the recent window, below zero = bearish;
-//   * the "MA" version adds a moving average of the oscillator.
+// FVG Oscillator MA — Pine Script v6 port of the MT4 "FVG Oscillator MA"
+// (Gehtsoft / fxcodebase). The .ex4 is encrypted, so inputs mirror the MT4
+// settings dialog and the formula follows the published behaviour:
+//   * every bar is +1 (bullish FVG), -1 (bearish FVG) or 0 (no FVG);
+//   * the oscillator is the bullish-vs-bearish share of FVGs over FvgPeriod,
+//     averaged with FvgMode and scaled to -100..+100 (HotLevel marks ±50);
+//   * with no FVG in the window the line keeps its last value (flat).
+// MT4-only UI inputs (clock, button, sound file, History) are not ported.
 
 //@version=6
-indicator("FVG Oscillator MA", shorttitle = "FVG Osc MA", overlay = false, precision = 2)
+indicator("FVG Oscillator MA", shorttitle = "FVGOSCMA", overlay = false, precision = 2)
 
-// ───────── Inputs ─────────
-grpOsc = "Oscillator"
-lookback  = input.int(20, "Lookback (bars)", minval = 1, group = grpOsc)
-valueMode = input.string("Gap width / ATR", "FVG value", options = ["Gap width / ATR", "Gap width (price)", "Count (±1)"], group = grpOsc)
-atrLen    = input.int(14, "ATR length", minval = 1, group = grpOsc)
-minGapAtr = input.float(0.0, "Min gap size (× ATR)", minval = 0.0, step = 0.05, group = grpOsc, tooltip = "Ignore gaps smaller than this multiple of ATR. 0 = all gaps.")
+// ───────── Inputs (names follow the MT4 dialog) ─────────
+grpMain = "Oscillator"
+tfInput    = input.timeframe("", "TimeFrame", group = grpMain, tooltip = "Empty = current chart timeframe.")
+fvgPeriod  = input.int(21, "FvgPeriod", minval = 1, group = grpMain)
+fvgMode    = input.string("Linear weighted", "FvgMode", options = ["Simple", "Exponential", "Smoothed", "Linear weighted"], group = grpMain)
+sigPeriod  = input.int(0, "SigPeriod", minval = 0, group = grpMain, tooltip = "0 = no signal line.")
+sigMode    = input.string("Linear weighted", "SigMode", options = ["Simple", "Exponential", "Smoothed", "Linear weighted"], group = grpMain)
+hotLevel   = input.float(50.0, "HotLevel", minval = 0, maxval = 100, group = grpMain)
+showIndex  = input.string("Standard Histogram", "ShowIndex", options = ["Standard Histogram", "Line"], group = grpMain)
 
-grpMa = "Moving average"
-maType = input.string("EMA", "MA type", options = ["SMA", "EMA", "WMA", "RMA", "HMA"], group = grpMa)
-maLen  = input.int(9, "MA length", minval = 1, group = grpMa)
+grpArr = "Arrows & alerts"
+drawArrows = input.string("on Indicator & Chart", "DrawArrows", options = ["off", "on Indicator", "on Chart", "on Indicator & Chart"], group = grpArr)
+arrowOn    = input.string("Zero cross", "Arrow trigger", options = ["Zero cross", "HotLevel cross", "Signal cross", "Slope change"], group = grpArr)
+alertBar   = input.int(1, "ALERTBAR", minval = 0, maxval = 1, group = grpArr, tooltip = "1 = closed bar (no repaint), 0 = live bar.")
+startTime  = input.string("00:00", "StartTime", group = grpArr)
+endTime    = input.string("23:59", "EndTime", group = grpArr)
 
-grpVis = "Display"
-showHist = input.bool(true, "Show per-bar FVG histogram", group = grpVis)
-showOsc  = input.bool(true, "Show oscillator line", group = grpVis)
-colBull  = input.color(#26a69a, "Bullish", group = grpVis)
-colBear  = input.color(#ef5350, "Bearish", group = grpVis)
-colOsc   = input.color(#2962ff, "Oscillator", group = grpVis)
-colMa    = input.color(#ff9800, "MA", group = grpVis)
+grpCol = "Colors"
+colorBuy  = input.color(#00ff7f, "ColorBUY", group = grpCol)    // SpringGreen
+colorSell = input.color(#ff69b4, "ColorSELL", group = grpCol)   // HotPink
+colorSig  = input.color(#ffd700, "Signal", group = grpCol)
 
-// ───────── FVG detection (3-candle gap) ─────────
-atr      = ta.atr(atrLen)
-bullGap  = low - high[2]          // gap between candle 3 low and candle 1 high
-bearGap  = low[2] - high          // gap between candle 1 low and candle 3 high
-minGap   = minGapAtr * atr
-isBull   = bullGap > 0 and bullGap >= minGap
-isBear   = bearGap > 0 and bearGap >= minGap
+// ───────── Calculation ─────────
+maOf(float src, int len, string mode) =>
+    switch mode
+        "Simple"      => ta.sma(src, len)
+        "Exponential" => ta.ema(src, len)
+        "Smoothed"    => ta.rma(src, len)
+        => ta.wma(src, len)
 
-scaleGap(float gap) =>
-    switch valueMode
-        "Gap width / ATR"   => atr > 0 ? gap / atr : 0.0
-        "Gap width (price)" => gap
-        => 1.0
+fvgOsc() =>
+    isBull = low > high[2]                       // gap: candle 3 low above candle 1 high
+    isBear = high < low[2]                       // gap: candle 3 high below candle 1 low
+    bullMa = maOf(isBull ? 1.0 : 0.0, fvgPeriod, fvgMode)
+    bearMa = maOf(isBear ? 1.0 : 0.0, fvgPeriod, fvgMode)
+    total  = bullMa + bearMa
+    var float osc = 0.0
+    osc := total > 0 ? 100 * (bullMa - bearMa) / total : osc
+    osc
 
-fvgValue = isBull ? scaleGap(bullGap) : isBear ? -scaleGap(bearGap) : 0.0
-
-// ───────── Oscillator + MA ─────────
-osc = math.sum(nz(fvgValue), lookback)
-
-maOf(float src, int len) =>
-    switch maType
-        "SMA" => ta.sma(src, len)
-        "WMA" => ta.wma(src, len)
-        "RMA" => ta.rma(src, len)
-        "HMA" => ta.hma(src, len)
-        => ta.ema(src, len)
-
-ma = maOf(osc, maLen)
+osc = request.security(syminfo.tickerid, tfInput, fvgOsc(), lookahead = barmerge.lookahead_off)
+sig = sigPeriod > 0 ? maOf(osc, sigPeriod, sigMode) : na
 
 // ───────── Plots ─────────
-plot(showHist ? fvgValue : na, "FVG", style = plot.style_columns, color = fvgValue >= 0 ? color.new(colBull, 60) : color.new(colBear, 60))
-plot(showOsc ? osc : na, "Oscillator", color = colOsc, linewidth = 1)
-plot(ma, "MA", color = ma >= 0 ? colBull : colBear, linewidth = 2)
-hline(0, "Zero", color = color.gray, linestyle = hline.style_dashed)
+oscColor = osc >= 0 ? colorBuy : colorSell
+plot(osc, "FVG Oscillator", color = oscColor, linewidth = 2,
+     style = showIndex == "Standard Histogram" ? plot.style_columns : plot.style_line)
+plot(sig, "Signal", color = colorSig, linewidth = 1)
+hline(hotLevel,  "Hot +", color = colorBuy,  linestyle = hline.style_dotted)
+hline(0,         "Zero",  color = color.gray,               linestyle = hline.style_dashed)
+hline(-hotLevel, "Hot -", color = colorSell, linestyle = hline.style_dotted)
 
-// ───────── Signals & alerts ─────────
-maCrossUp   = ta.crossover(ma, 0)
-maCrossDown = ta.crossunder(ma, 0)
-oscCrossUp  = ta.crossover(osc, ma)
-oscCrossDn  = ta.crossunder(osc, ma)
+// ───────── Signals ─────────
+ref = arrowOn == "Signal cross" and sigPeriod > 0 ? sig : arrowOn == "HotLevel cross" ? hotLevel : 0.0
+refDn = arrowOn == "HotLevel cross" ? -hotLevel : ref
+slope = osc - osc[1]
 
-plotshape(maCrossUp,   "MA > 0", shape.triangleup,   location.bottom, colBull, size = size.tiny)
-plotshape(maCrossDown, "MA < 0", shape.triangledown, location.top,    colBear, size = size.tiny)
+rawBuy  = arrowOn == "Slope change" ? slope > 0 and nz(slope[1]) <= 0 : ta.crossover(osc, ref)
+rawSell = arrowOn == "Slope change" ? slope < 0 and nz(slope[1]) >= 0 : ta.crossunder(osc, refDn)
 
-// Static alerts (pick in the alert dialog). The message is JSON, which the
-// /webhook endpoint of this repo turns into a formatted Telegram message.
-alertcondition(maCrossUp,   "FVG MA crosses above 0", '{"sinyal":"FVG MA 0 üstüne geçti (AL)","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
-alertcondition(maCrossDown, "FVG MA crosses below 0", '{"sinyal":"FVG MA 0 altına geçti (SAT)","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
-alertcondition(oscCrossUp,  "Oscillator crosses above MA", '{"sinyal":"FVG Osc MA üstüne geçti","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
-alertcondition(oscCrossDn,  "Oscillator crosses below MA", '{"sinyal":"FVG Osc MA altına geçti","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
+inSession = not na(time(timeframe.period, str.replace(startTime, ":", "") + "-" + str.replace(endTime, ":", "") + ":1234567"))
+confirmed = alertBar == 1 ? barstate.isconfirmed : true
+buy  = rawBuy  and inSession
+sell = rawSell and inSession
 
-// One combined alert ("Any alert() function call") that fires once per closed bar.
+onInd   = drawArrows == "on Indicator" or drawArrows == "on Indicator & Chart"
+onChart = drawArrows == "on Chart" or drawArrows == "on Indicator & Chart"
+plotshape(onInd and buy,    "BUY (ind)",    shape.arrowup,   location.bottom,   colorBuy,  size = size.small)
+plotshape(onInd and sell,   "SELL (ind)",   shape.arrowdown, location.top,      colorSell, size = size.small)
+plotshape(onChart and buy,  "BUY (chart)",  shape.arrowup,   location.belowbar, colorBuy,  size = size.small, force_overlay = true)
+plotshape(onChart and sell, "SELL (chart)", shape.arrowdown, location.abovebar, colorSell, size = size.small, force_overlay = true)
+
+// ───────── Alerts → /webhook → Telegram ─────────
+// Static alerts for the alert dialog; messages are JSON for this repo's webhook.
+alertcondition(buy,  "FVGOSCMA BUY",  '{"sinyal":"FVG Osc MA AL","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
+alertcondition(sell, "FVGOSCMA SELL", '{"sinyal":"FVG Osc MA SAT","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
+
 jsonMsg(string signal) =>
     '{"sinyal":"' + signal + '","sembol":"' + syminfo.ticker + '","periyot":"' + timeframe.period +
-     '","fiyat":"' + str.tostring(close, format.mintick) + '","osc":"' + str.tostring(osc, "#.##") +
-     '","ma":"' + str.tostring(ma, "#.##") + '"}'
+     '","fiyat":"' + str.tostring(close, format.mintick) + '","osc":"' + str.tostring(osc, "#.##") + '"}'
 
-if maCrossUp
-    alert(jsonMsg("FVG MA 0 üstüne geçti (AL)"), alert.freq_once_per_bar_close)
-if maCrossDown
-    alert(jsonMsg("FVG MA 0 altına geçti (SAT)"), alert.freq_once_per_bar_close)
+// "Any alert() function call" alert; ALERTBAR = 1 fires only on closed bars.
+if buy and confirmed
+    alert(jsonMsg("FVG Osc MA AL"), alertBar == 1 ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
+if sell and confirmed
+    alert(jsonMsg("FVG Osc MA SAT"), alertBar == 1 ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
