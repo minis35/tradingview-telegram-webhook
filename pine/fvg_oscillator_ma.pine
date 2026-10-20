@@ -12,7 +12,7 @@
 // MT4-only UI inputs (clock, button, sound file, History) are not ported.
 
 //@version=6
-indicator("FVG Oscillator MA", shorttitle = "FVGOSCMA", overlay = false, precision = 2)
+indicator("FVG Oscillator MA", shorttitle = "FVGOSCMA", overlay = false, precision = 2, max_boxes_count = 500)
 
 // ───────── Inputs (names follow the MT4 dialog) ─────────
 grpMain = "Oscillator"
@@ -31,9 +31,14 @@ showIndex  = input.string("Standard Histogram", "ShowIndex", options = ["Standar
 grpArr = "Arrows & alerts"
 drawArrows = input.string("on Indicator & Chart", "DrawArrows", options = ["off", "on Indicator", "on Chart", "on Indicator & Chart"], group = grpArr)
 arrowOn    = input.string("Zero cross", "Arrow trigger", options = ["Zero cross", "HotLevel cross", "Signal cross", "Slope change"], group = grpArr)
+deadZone   = input.float(20.0, "Signal dead zone (% of HotLevel)", minval = 0, step = 5, group = grpArr, tooltip = "Zero-cross arrows need the oscillator to move beyond ± this share of HotLevel, so tiny wiggles around zero give no signal. 0 = plain zero cross.")
 alertBar   = input.int(1, "ALERTBAR", minval = 0, maxval = 1, group = grpArr, tooltip = "1 = closed bar (no repaint), 0 = live bar.")
 startTime  = input.string("00:00", "StartTime", group = grpArr)
 endTime    = input.string("23:59", "EndTime", group = grpArr)
+
+grpBox = "FVG boxes"
+showBoxes = input.bool(true, "Show FVG boxes on chart", group = grpBox, tooltip = "Draws every detected FVG on the price chart. Only when TimeFrame is the chart timeframe.")
+boxBars   = input.int(10, "Box length (bars)", minval = 1, group = grpBox)
 
 grpCol = "Colors"
 colorBuy  = input.color(#00ff7f, "ColorBUY", group = grpCol)    // SpringGreen
@@ -94,8 +99,16 @@ ref = arrowOn == "Signal cross" and sigPeriod > 0 ? sig : arrowOn == "HotLevel c
 refDn = arrowOn == "HotLevel cross" ? -hot : ref
 slope = osc - osc[1]
 
-rawBuy  = arrowOn == "Slope change" ? slope > 0 and nz(slope[1]) <= 0 : ta.crossover(osc, ref)
-rawSell = arrowOn == "Slope change" ? slope < 0 and nz(slope[1]) >= 0 : ta.crossunder(osc, refDn)
+// Zero cross with hysteresis: the side flips only once osc leaves the dead zone.
+dz = hot * deadZone / 100
+var int side = 0
+prevSide = side
+side := osc > dz ? 1 : osc < -dz ? -1 : side
+zeroBuy  = side == 1 and prevSide != 1
+zeroSell = side == -1 and prevSide != -1
+
+rawBuy  = arrowOn == "Slope change" ? slope > 0 and nz(slope[1]) <= 0 : arrowOn == "Zero cross" ? zeroBuy  : ta.crossover(osc, ref)
+rawSell = arrowOn == "Slope change" ? slope < 0 and nz(slope[1]) >= 0 : arrowOn == "Zero cross" ? zeroSell : ta.crossunder(osc, refDn)
 
 inSession = not na(time(timeframe.period, str.replace(startTime, ":", "") + "-" + str.replace(endTime, ":", "") + ":1234567"))
 confirmed = alertBar == 1 ? barstate.isconfirmed : true
@@ -108,6 +121,13 @@ plotshape(onInd and buy,    "BUY (ind)",    shape.triangleup,   location.bottom,
 plotshape(onInd and sell,   "SELL (ind)",   shape.triangledown, location.top,      colorSell, size = size.tiny)
 plotshape(onChart and buy,  "BUY (chart)",  shape.triangleup,   location.belowbar, colorBuy,  size = size.small, force_overlay = true)
 plotshape(onChart and sell, "SELL (chart)", shape.triangledown, location.abovebar, colorSell, size = size.small, force_overlay = true)
+
+// ───────── FVG boxes (chart timeframe) ─────────
+if showBoxes and tfInput == "" and barstate.isconfirmed
+    if low > high[2]
+        box.new(bar_index - 2, low, bar_index + boxBars, high[2], border_color = color.new(colorBuy, 40), bgcolor = color.new(colorBuy, 85), force_overlay = true)
+    if high < low[2]
+        box.new(bar_index - 2, low[2], bar_index + boxBars, high, border_color = color.new(colorSell, 40), bgcolor = color.new(colorSell, 85), force_overlay = true)
 
 // ───────── Alerts ─────────
 alertcondition(buy,  "FVGOSCMA BUY",  "FVG Osc MA AL ▲ {{ticker}} {{interval}} @ {{close}}")
