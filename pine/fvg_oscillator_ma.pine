@@ -66,8 +66,9 @@ sig = sigPeriod > 0 ? maOf(osc, sigPeriod, sigMode) : na
 
 // ───────── Plots ─────────
 oscColor = osc >= 0 ? colorBuy : colorSell
-plot(osc, "FVG Oscillator", color = oscColor, linewidth = 2,
-     style = showIndex == "Standard Histogram" ? plot.style_columns : plot.style_line)
+isHist   = showIndex == "Standard Histogram"
+plot(isHist ? osc : na, "FVG Histogram", color = oscColor, style = plot.style_columns)
+plot(isHist ? na : osc, "FVG Line",      color = oscColor, linewidth = 2)
 plot(sig, "Signal", color = colorSig, linewidth = 1)
 hline(hotLevel,  "Hot +", color = colorBuy,  linestyle = hline.style_dotted)
 hline(0,         "Zero",  color = color.gray,               linestyle = hline.style_dashed)
@@ -88,10 +89,10 @@ sell = rawSell and inSession
 
 onInd   = drawArrows == "on Indicator" or drawArrows == "on Indicator & Chart"
 onChart = drawArrows == "on Chart" or drawArrows == "on Indicator & Chart"
-plotshape(onInd and buy,    "BUY (ind)",    shape.arrowup,   location.bottom,   colorBuy,  size = size.small)
-plotshape(onInd and sell,   "SELL (ind)",   shape.arrowdown, location.top,      colorSell, size = size.small)
-plotshape(onChart and buy,  "BUY (chart)",  shape.arrowup,   location.belowbar, colorBuy,  size = size.small, force_overlay = true)
-plotshape(onChart and sell, "SELL (chart)", shape.arrowdown, location.abovebar, colorSell, size = size.small, force_overlay = true)
+plotshape(onInd and buy,    "BUY (ind)",    shape.triangleup,   location.bottom,   colorBuy,  size = size.tiny)
+plotshape(onInd and sell,   "SELL (ind)",   shape.triangledown, location.top,      colorSell, size = size.tiny)
+plotshape(onChart and buy,  "BUY (chart)",  shape.triangleup,   location.belowbar, colorBuy,  size = size.small, force_overlay = true)
+plotshape(onChart and sell, "SELL (chart)", shape.triangledown, location.abovebar, colorSell, size = size.small, force_overlay = true)
 
 // ───────── Alerts → /webhook → Telegram ─────────
 // Static alerts for the alert dialog; messages are JSON for this repo's webhook.
