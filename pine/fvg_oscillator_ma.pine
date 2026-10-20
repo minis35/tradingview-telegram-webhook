@@ -1,11 +1,13 @@
 // This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
-// FVG Oscillator MA — Pine Script v6 port of the MT4 "FVG Oscillator MA"
-// (Gehtsoft / fxcodebase). The .ex4 is encrypted, so inputs mirror the MT4
-// settings dialog and the formula follows the published behaviour:
-//   * every bar is +1 (bullish FVG), -1 (bearish FVG) or 0 (no FVG);
-//   * the oscillator is the bullish-vs-bearish share of FVGs over FvgPeriod,
-//     averaged with FvgMode and scaled to -100..+100 (HotLevel marks ±50);
-//   * with no FVG in the window the line keeps its last value (flat).
+// FVG Oscillator MA — Pine Script v6 port of the MT4 "FVG Oscillator MA".
+// Core logic is ported from the open-source FVG_Oscillator.mq4 (Mario Jemic,
+// Gehtsoft USA, GPL — fxcodebase topic 73871, archived in
+// github.com/gehtsoft-usa/fxcodebase-backup):
+//   * bullish FVG (low > high[2]): add the gap to Data if Data > 0, else restart at the gap;
+//   * bearish FVG (high < low[2]): add the (negative) gap if Data < 0, else restart at it;
+//   * no FVG: Data keeps its value (flat).
+// The "MA" wrapper smooths Data with FvgPeriod/FvgMode. Its .ex4 is encrypted;
+// expressing Data in points is inferred from the MT4 screenshot (HotLevel 50).
 // MT4-only UI inputs (clock, button, sound file, History) are not ported.
 
 //@version=6
@@ -18,7 +20,8 @@ fvgPeriod  = input.int(21, "FvgPeriod", minval = 1, group = grpMain)
 fvgMode    = input.string("Linear weighted", "FvgMode", options = ["Simple", "Exponential", "Smoothed", "Linear weighted"], group = grpMain)
 sigPeriod  = input.int(0, "SigPeriod", minval = 0, group = grpMain, tooltip = "0 = no signal line.")
 sigMode    = input.string("Linear weighted", "SigMode", options = ["Simple", "Exponential", "Smoothed", "Linear weighted"], group = grpMain)
-hotLevel   = input.float(50.0, "HotLevel", minval = 0, maxval = 100, group = grpMain)
+hotLevel   = input.float(50.0, "HotLevel", minval = 0, group = grpMain)
+units      = input.string("Points", "Units", options = ["Points", "Pips (10 points)", "Price"], group = grpMain, tooltip = "Unit of the accumulated gap size. Points = MT4 Point (syminfo.mintick).")
 showIndex  = input.string("Standard Histogram", "ShowIndex", options = ["Standard Histogram", "Line"], group = grpMain)
 
 grpArr = "Arrows & alerts"
@@ -41,15 +44,20 @@ maOf(float src, int len, string mode) =>
         "Smoothed"    => ta.rma(src, len)
         => ta.wma(src, len)
 
+unitSize = switch units
+    "Points"           => syminfo.mintick
+    "Pips (10 points)" => syminfo.mintick * 10
+    => 1.0
+
 fvgOsc() =>
-    isBull = low > high[2]                       // gap: candle 3 low above candle 1 high
-    isBear = high < low[2]                       // gap: candle 3 high below candle 1 low
-    bullMa = maOf(isBull ? 1.0 : 0.0, fvgPeriod, fvgMode)
-    bearMa = maOf(isBear ? 1.0 : 0.0, fvgPeriod, fvgMode)
-    total  = bullMa + bearMa
-    var float osc = 0.0
-    osc := total > 0 ? 100 * (bullMa - bearMa) / total : osc
-    osc
+    var float data = 0.0
+    if low > high[2]                             // bullish FVG
+        gap = low - high[2]
+        data := data > 0 ? data + gap : gap
+    if high < low[2]                             // bearish FVG
+        gap = high - low[2]
+        data := data < 0 ? data + gap : gap
+    maOf(data / unitSize, fvgPeriod, fvgMode)
 
 osc = request.security(syminfo.tickerid, tfInput, fvgOsc(), lookahead = barmerge.lookahead_off)
 sig = sigPeriod > 0 ? maOf(osc, sigPeriod, sigMode) : na
