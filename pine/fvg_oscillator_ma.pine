@@ -8,6 +8,7 @@
 //   * no FVG: Data keeps its value (flat).
 // The "MA" wrapper smooths Data with FvgPeriod/FvgMode. Its .ex4 is encrypted;
 // expressing Data in points is inferred from the MT4 screenshot (HotLevel 50).
+// Non-forex symbols (crypto, stocks) default to ATR units so values compare across assets.
 // MT4-only UI inputs (clock, button, sound file, History) are not ported.
 
 //@version=6
@@ -21,7 +22,9 @@ fvgMode    = input.string("Linear weighted", "FvgMode", options = ["Simple", "Ex
 sigPeriod  = input.int(0, "SigPeriod", minval = 0, group = grpMain, tooltip = "0 = no signal line.")
 sigMode    = input.string("Linear weighted", "SigMode", options = ["Simple", "Exponential", "Smoothed", "Linear weighted"], group = grpMain)
 hotLevel   = input.float(50.0, "HotLevel", minval = 0, group = grpMain)
-units      = input.string("Points", "Units", options = ["Points", "Pips (10 points)", "Price"], group = grpMain, tooltip = "Unit of the accumulated gap size. Points = MT4 Point (0.00001 on FX, 0.001 on JPY pairs).")
+units      = input.string("Auto", "Units", options = ["Auto", "Points", "Pips (10 points)", "ATR", "% of price", "Price"], group = grpMain, tooltip = "Unit of the accumulated gap size. Auto = Points on forex, ATR elsewhere (crypto, stocks). Points = MT4 Point (0.00001 on FX, 0.001 on JPY pairs).")
+hotLevelN  = input.float(1.0, "HotLevel (ATR / %)", minval = 0, step = 0.1, group = grpMain, tooltip = "HotLevel used when the unit is ATR or % of price.")
+atrLen     = input.int(14, "ATR length", minval = 1, group = grpMain)
 showIndex  = input.string("Standard Histogram", "ShowIndex", options = ["Standard Histogram", "Line"], group = grpMain)
 
 grpArr = "Arrows & alerts"
@@ -46,10 +49,8 @@ maOf(float src, int len, string mode) =>
 
 // MT4 Point on a 5-digit FX feed; TradingView feeds such as ICE quote only 4 digits.
 mt4Point = syminfo.type == "forex" ? (syminfo.currency == "JPY" ? 0.001 : 0.00001) : syminfo.mintick
-unitSize = switch units
-    "Points"           => mt4Point
-    "Pips (10 points)" => mt4Point * 10
-    => 1.0
+unit = units == "Auto" ? (syminfo.type == "forex" ? "Points" : "ATR") : units
+hot  = unit == "ATR" or unit == "% of price" ? hotLevelN : hotLevel
 
 fvgOsc() =>
     var float data = 0.0
@@ -59,6 +60,13 @@ fvgOsc() =>
     if high < low[2]                             // bearish FVG
         gap = high - low[2]
         data := data < 0 ? data + gap : gap
+    atr = ta.atr(atrLen)
+    unitSize = switch unit
+        "Points"           => mt4Point
+        "Pips (10 points)" => mt4Point * 10
+        "ATR"              => atr
+        "% of price"       => close / 100
+        => 1.0
     maOf(data / unitSize, fvgPeriod, fvgMode)
 
 osc = request.security(syminfo.tickerid, tfInput, fvgOsc(), lookahead = barmerge.lookahead_off)
@@ -70,13 +78,13 @@ isHist   = showIndex == "Standard Histogram"
 plot(isHist ? osc : na, "FVG Histogram", color = oscColor, style = plot.style_columns)
 plot(isHist ? na : osc, "FVG Line",      color = oscColor, linewidth = 2)
 plot(sig, "Signal", color = colorSig, linewidth = 1)
-hline(hotLevel,  "Hot +", color = colorBuy,  linestyle = hline.style_dotted)
+plot(hot,  "Hot +", color = colorBuy,  linestyle = plot.linestyle_dotted)
 hline(0,         "Zero",  color = color.gray,               linestyle = hline.style_dashed)
-hline(-hotLevel, "Hot -", color = colorSell, linestyle = hline.style_dotted)
+plot(-hot, "Hot -", color = colorSell, linestyle = plot.linestyle_dotted)
 
 // ───────── Signals ─────────
-ref = arrowOn == "Signal cross" and sigPeriod > 0 ? sig : arrowOn == "HotLevel cross" ? hotLevel : 0.0
-refDn = arrowOn == "HotLevel cross" ? -hotLevel : ref
+ref = arrowOn == "Signal cross" and sigPeriod > 0 ? sig : arrowOn == "HotLevel cross" ? hot : 0.0
+refDn = arrowOn == "HotLevel cross" ? -hot : ref
 slope = osc - osc[1]
 
 rawBuy  = arrowOn == "Slope change" ? slope > 0 and nz(slope[1]) <= 0 : ta.crossover(osc, ref)
