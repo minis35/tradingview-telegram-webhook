@@ -25,6 +25,7 @@ hotLevel   = input.float(50.0, "HotLevel", minval = 0, group = grpMain)
 units      = input.string("Auto", "Units", options = ["Auto", "Points", "Pips (10 points)", "ATR", "% of price", "Price"], group = grpMain, tooltip = "Unit of the accumulated gap size. Auto = Points on forex, ATR elsewhere (crypto, stocks). Points = MT4 Point (0.00001 on FX, 0.001 on JPY pairs).")
 hotLevelN  = input.float(1.0, "HotLevel (ATR / %)", minval = 0, step = 0.1, group = grpMain, tooltip = "HotLevel used when the unit is ATR or % of price.")
 atrLen     = input.int(14, "ATR length", minval = 1, group = grpMain)
+resetFill  = input.bool(true, "Reset when FVG is filled", group = grpMain, tooltip = "Not in the MT4 original. Clears the accumulated value once price closes through the latest FVG, so a drop without a bearish FVG no longer leaves the oscillator bullish. Turn off to match MT4.")
 showIndex  = input.string("Standard Histogram", "ShowIndex", options = ["Standard Histogram", "Line"], group = grpMain)
 
 grpArr = "Arrows & alerts"
@@ -53,13 +54,19 @@ unit = units == "Auto" ? (syminfo.type == "forex" ? "Points" : "ATR") : units
 hot  = unit == "ATR" or unit == "% of price" ? hotLevelN : hotLevel
 
 fvgOsc() =>
-    var float data = 0.0
+    var float data   = 0.0
+    var float bullLo = na                        // bottom of the latest bullish FVG
+    var float bearHi = na                        // top of the latest bearish FVG
     if low > high[2]                             // bullish FVG
         gap = low - high[2]
         data := data > 0 ? data + gap : gap
+        bullLo := high[2]
     if high < low[2]                             // bearish FVG
         gap = high - low[2]
         data := data < 0 ? data + gap : gap
+        bearHi := low[2]
+    if resetFill and ((data > 0 and close < bullLo) or (data < 0 and close > bearHi))
+        data := 0.0
     atr = ta.atr(atrLen)
     unitSize = switch unit
         "Points"           => mt4Point
