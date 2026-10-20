@@ -1,0 +1,93 @@
+// This Pine Script™ code is subject to the terms of the Mozilla Public License 2.0
+// FVG Oscillator MA — Pine Script v6 reconstruction of the MT4 "FVG Oscillator MA"
+// (Gehtsoft / fxcodebase). The original .ex4 is compiled and encrypted, so this
+// follows the published behaviour instead of a line-by-line port:
+//   * a bullish FVG pushes the oscillator up, a bearish FVG pushes it down,
+//     and with no FVG the line stays flat;
+//   * a wider gap moves the oscillator further;
+//   * above zero = bullish FVGs dominated the recent window, below zero = bearish;
+//   * the "MA" version adds a moving average of the oscillator.
+
+//@version=6
+indicator("FVG Oscillator MA", shorttitle = "FVG Osc MA", overlay = false, precision = 2)
+
+// ───────── Inputs ─────────
+grpOsc = "Oscillator"
+lookback  = input.int(20, "Lookback (bars)", minval = 1, group = grpOsc)
+valueMode = input.string("Gap width / ATR", "FVG value", options = ["Gap width / ATR", "Gap width (price)", "Count (±1)"], group = grpOsc)
+atrLen    = input.int(14, "ATR length", minval = 1, group = grpOsc)
+minGapAtr = input.float(0.0, "Min gap size (× ATR)", minval = 0.0, step = 0.05, group = grpOsc, tooltip = "Ignore gaps smaller than this multiple of ATR. 0 = all gaps.")
+
+grpMa = "Moving average"
+maType = input.string("EMA", "MA type", options = ["SMA", "EMA", "WMA", "RMA", "HMA"], group = grpMa)
+maLen  = input.int(9, "MA length", minval = 1, group = grpMa)
+
+grpVis = "Display"
+showHist = input.bool(true, "Show per-bar FVG histogram", group = grpVis)
+showOsc  = input.bool(true, "Show oscillator line", group = grpVis)
+colBull  = input.color(#26a69a, "Bullish", group = grpVis)
+colBear  = input.color(#ef5350, "Bearish", group = grpVis)
+colOsc   = input.color(#2962ff, "Oscillator", group = grpVis)
+colMa    = input.color(#ff9800, "MA", group = grpVis)
+
+// ───────── FVG detection (3-candle gap) ─────────
+atr      = ta.atr(atrLen)
+bullGap  = low - high[2]          // gap between candle 3 low and candle 1 high
+bearGap  = low[2] - high          // gap between candle 1 low and candle 3 high
+minGap   = minGapAtr * atr
+isBull   = bullGap > 0 and bullGap >= minGap
+isBear   = bearGap > 0 and bearGap >= minGap
+
+scaleGap(float gap) =>
+    switch valueMode
+        "Gap width / ATR"   => atr > 0 ? gap / atr : 0.0
+        "Gap width (price)" => gap
+        => 1.0
+
+fvgValue = isBull ? scaleGap(bullGap) : isBear ? -scaleGap(bearGap) : 0.0
+
+// ───────── Oscillator + MA ─────────
+osc = math.sum(nz(fvgValue), lookback)
+
+maOf(float src, int len) =>
+    switch maType
+        "SMA" => ta.sma(src, len)
+        "WMA" => ta.wma(src, len)
+        "RMA" => ta.rma(src, len)
+        "HMA" => ta.hma(src, len)
+        => ta.ema(src, len)
+
+ma = maOf(osc, maLen)
+
+// ───────── Plots ─────────
+plot(showHist ? fvgValue : na, "FVG", style = plot.style_columns, color = fvgValue >= 0 ? color.new(colBull, 60) : color.new(colBear, 60))
+plot(showOsc ? osc : na, "Oscillator", color = colOsc, linewidth = 1)
+plot(ma, "MA", color = ma >= 0 ? colBull : colBear, linewidth = 2)
+hline(0, "Zero", color = color.gray, linestyle = hline.style_dashed)
+
+// ───────── Signals & alerts ─────────
+maCrossUp   = ta.crossover(ma, 0)
+maCrossDown = ta.crossunder(ma, 0)
+oscCrossUp  = ta.crossover(osc, ma)
+oscCrossDn  = ta.crossunder(osc, ma)
+
+plotshape(maCrossUp,   "MA > 0", shape.triangleup,   location.bottom, colBull, size = size.tiny)
+plotshape(maCrossDown, "MA < 0", shape.triangledown, location.top,    colBear, size = size.tiny)
+
+// Static alerts (pick in the alert dialog). The message is JSON, which the
+// /webhook endpoint of this repo turns into a formatted Telegram message.
+alertcondition(maCrossUp,   "FVG MA crosses above 0", '{"sinyal":"FVG MA 0 üstüne geçti (AL)","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
+alertcondition(maCrossDown, "FVG MA crosses below 0", '{"sinyal":"FVG MA 0 altına geçti (SAT)","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
+alertcondition(oscCrossUp,  "Oscillator crosses above MA", '{"sinyal":"FVG Osc MA üstüne geçti","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
+alertcondition(oscCrossDn,  "Oscillator crosses below MA", '{"sinyal":"FVG Osc MA altına geçti","sembol":"{{ticker}}","periyot":"{{interval}}","fiyat":"{{close}}"}')
+
+// One combined alert ("Any alert() function call") that fires once per closed bar.
+jsonMsg(string signal) =>
+    '{"sinyal":"' + signal + '","sembol":"' + syminfo.ticker + '","periyot":"' + timeframe.period +
+     '","fiyat":"' + str.tostring(close, format.mintick) + '","osc":"' + str.tostring(osc, "#.##") +
+     '","ma":"' + str.tostring(ma, "#.##") + '"}'
+
+if maCrossUp
+    alert(jsonMsg("FVG MA 0 üstüne geçti (AL)"), alert.freq_once_per_bar_close)
+if maCrossDown
+    alert(jsonMsg("FVG MA 0 altına geçti (SAT)"), alert.freq_once_per_bar_close)
