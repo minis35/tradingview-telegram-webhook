@@ -33,6 +33,7 @@ grpArr = "Arrows & alerts"
 drawArrows = input.string("on Indicator & Chart", "DrawArrows", options = ["off", "on Indicator", "on Chart", "on Indicator & Chart"], group = grpArr)
 arrowOn    = input.string("Zero cross", "Arrow trigger", options = ["Zero cross", "HotLevel cross", "Signal cross", "Slope change"], group = grpArr)
 deadZone   = input.float(20.0, "Signal dead zone (% of HotLevel)", minval = 0, step = 5, group = grpArr, tooltip = "Zero-cross arrows need the oscillator to move beyond ± this share of HotLevel, so tiny wiggles around zero give no signal. 0 = plain zero cross.")
+showWarn   = input.bool(true, "Early exit warning (×)", group = grpArr, tooltip = "While long (last signal BUY), marks the bar where every bullish FVG is filled or a bearish FVG appears, before the slower zero-cross SELL. Mirrored while short.")
 alertBar   = input.int(1, "ALERTBAR", minval = 0, maxval = 1, group = grpArr, tooltip = "1 = closed bar (no repaint), 0 = live bar.")
 startTime  = input.string("00:00", "StartTime", group = grpArr)
 endTime    = input.string("23:59", "EndTime", group = grpArr)
@@ -46,6 +47,7 @@ grpCol = "Colors"
 colorBuy  = input.color(#00ff7f, "ColorBUY", group = grpCol)    // SpringGreen
 colorSell = input.color(#ff69b4, "ColorSELL", group = grpCol)   // HotPink
 colorSig  = input.color(#ffd700, "Signal", group = grpCol)
+colorWarn = input.color(#ffa500, "Warning", group = grpCol)
 
 // ───────── Calculation ─────────
 maOf(float src, int len, string mode) =>
@@ -100,9 +102,10 @@ fvgOsc() =>
         "ATR"              => atr
         "% of price"       => close / 100
         => 1.0
-    maOf(data / unitSize, fvgPeriod, fvgMode)
+    raw = data / unitSize
+    [maOf(raw, fvgPeriod, fvgMode), raw]
 
-osc = request.security(syminfo.tickerid, tfInput, fvgOsc(), lookahead = barmerge.lookahead_off)
+[osc, rawOsc] = request.security(syminfo.tickerid, tfInput, fvgOsc(), lookahead = barmerge.lookahead_off)
 sig = sigPeriod > 0 ? maOf(osc, sigPeriod, sigMode) : na
 
 // ───────── Plots ─────────
@@ -136,12 +139,26 @@ confirmed = alertBar == 1 ? barstate.isconfirmed : true
 buy  = rawBuy  and inSession
 sell = rawSell and inSession
 
+// Early warning: the raw (unsmoothed) FVG value of the current side is used up.
+// Fires at most once per side, until the next zero-cross flip.
+var bool warned = false
+if side != prevSide
+    warned := false
+bullEnd = showWarn and not warned and side == 1  and nz(rawOsc[1]) > 0 and rawOsc <= 0 and inSession
+bearEnd = showWarn and not warned and side == -1 and nz(rawOsc[1]) < 0 and rawOsc >= 0 and inSession
+if bullEnd or bearEnd
+    warned := true
+
 onInd   = drawArrows == "on Indicator" or drawArrows == "on Indicator & Chart"
 onChart = drawArrows == "on Chart" or drawArrows == "on Indicator & Chart"
 plotshape(onInd and buy,    "BUY (ind)",    shape.triangleup,   location.bottom,   colorBuy,  size = size.tiny)
 plotshape(onInd and sell,   "SELL (ind)",   shape.triangledown, location.top,      colorSell, size = size.tiny)
 plotshape(onChart and buy,  "BUY (chart)",  shape.triangleup,   location.belowbar, colorBuy,  size = size.small, force_overlay = true)
 plotshape(onChart and sell, "SELL (chart)", shape.triangledown, location.abovebar, colorSell, size = size.small, force_overlay = true)
+
+plotshape(onInd and (bullEnd or bearEnd) ? 0.0 : na, "Exit warning (ind)", shape.xcross, location.absolute, colorWarn, size = size.tiny)
+plotshape(onChart and bullEnd, "Long exit warning",  shape.xcross, location.abovebar, colorWarn, size = size.tiny, force_overlay = true)
+plotshape(onChart and bearEnd, "Short exit warning", shape.xcross, location.belowbar, colorWarn, size = size.tiny, force_overlay = true)
 
 // ───────── FVG boxes (chart timeframe) ─────────
 // Open boxes extend right until price trades through the far side of the gap.
@@ -180,6 +197,8 @@ if showBoxes and tfInput == ""
 // ───────── Alerts ─────────
 alertcondition(buy,  "FVGOSCMA BUY",  "FVG Osc MA AL ▲ {{ticker}} {{interval}} @ {{close}}")
 alertcondition(sell, "FVGOSCMA SELL", "FVG Osc MA SAT ▼ {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bullEnd, "FVGOSCMA long exit warning",  "FVG Osc MA UYARI × yükseliş FVG'leri bitti {{ticker}} {{interval}} @ {{close}}")
+alertcondition(bearEnd, "FVGOSCMA short exit warning", "FVG Osc MA UYARI × düşüş FVG'leri bitti {{ticker}} {{interval}} @ {{close}}")
 
 alertMsg(string signal) =>
     signal + " " + syminfo.ticker + " " + timeframe.period + " @ " + str.tostring(close, format.mintick) +
@@ -190,3 +209,7 @@ if buy and confirmed
     alert(alertMsg("FVG Osc MA AL ▲"), alertBar == 1 ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
 if sell and confirmed
     alert(alertMsg("FVG Osc MA SAT ▼"), alertBar == 1 ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
+if bullEnd and confirmed
+    alert(alertMsg("FVG Osc MA UYARI × yükseliş FVG'leri bitti"), alertBar == 1 ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
+if bearEnd and confirmed
+    alert(alertMsg("FVG Osc MA UYARI × düşüş FVG'leri bitti"), alertBar == 1 ? alert.freq_once_per_bar_close : alert.freq_once_per_bar)
